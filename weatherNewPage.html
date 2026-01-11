@@ -10,91 +10,61 @@
         body, html { height: 100%; margin: 0; font-family: 'Segoe UI', Roboto, sans-serif; overflow: hidden; }
         #map { height: 100%; width: 100%; }
 
-        /* --- 2. FLOATING WEATHER CARD (The Glass Look) --- */
+        /* --- 2. FLOATING WEATHER CARD (Top Right) --- */
         #weather-card {
             position: absolute;
             top: 20px;
-            right: 20px; /* Top Right corner */
-            background: rgba(255, 255, 255, 0.85); /* Glass effect */
-            backdrop-filter: blur(10px); /* Blurs the map behind it */
+            right: 20px;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
             padding: 15px;
             border-radius: 20px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.1);
             width: 260px;
             z-index: 1000;
             transition: all 0.3s ease;
-            max-height: 100px; /* Initially small */
-            overflow: hidden; /* Hide the extra details */
+            max-height: 100px;
+            overflow: hidden;
+            cursor: pointer;
         }
 
-        /* When we add the 'active' class, it grows to show everything */
-        #weather-card.expanded {
-            max-height: 500px;
-            width: 300px;
-        }
+        #weather-card.expanded { max-height: 500px; width: 300px; }
 
-        /* --- 3. WEATHER HEADER (Always Visible) --- */
-        .weather-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            cursor: pointer; /* Suggests it's clickable */
-        }
+        .weather-header { display: flex; align-items: center; justify-content: space-between; }
+        .main-temp { font-size: 2.5rem; font-weight: 800; color: #333; }
+        .weather-icon-box { width: 80px; height: 80px; }
+        .weather-icon-box img { width: 100%; height: 100%; object-fit: contain; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.2)); }
+        .toggle-btn { font-size: 0.8rem; color: #666; text-align: center; margin-top: 5px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
 
-        .main-temp {
-            font-size: 2.5rem;
-            font-weight: 800;
-            color: #333;
-        }
-
-        .weather-icon-box {
-            width: 80px;
-            height: 80px;
-        }
-        
-        .weather-icon-box img {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.2));
-        }
-
-        .toggle-btn {
-            font-size: 0.8rem;
-            color: #666;
-            text-align: center;
-            margin-top: 5px;
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        /* --- 4. HIDDEN DETAILS GRID --- */
-        .weather-details {
-            margin-top: 20px;
-            display: grid;
-            grid-template-columns: 1fr 1fr; /* 2 Columns */
-            gap: 15px;
-            border-top: 1px solid #ccc;
-            padding-top: 15px;
-            opacity: 0; /* Hidden initially */
-            transition: opacity 0.5s ease;
-        }
-
-        /* Show details when expanded */
+        .weather-details { margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 15px; border-top: 1px solid #ccc; padding-top: 15px; opacity: 0; transition: opacity 0.5s ease; }
         #weather-card.expanded .weather-details { opacity: 1; }
-
-        .detail-item {
-            background: rgba(255,255,255,0.6);
-            padding: 10px;
-            border-radius: 10px;
-            text-align: center;
-        }
-
+        .detail-item { background: rgba(255,255,255,0.6); padding: 10px; border-radius: 10px; text-align: center; }
         .detail-label { font-size: 0.75rem; color: #555; display: block; }
         .detail-val { font-size: 1rem; font-weight: bold; color: #222; }
 
-        /* --- 5. BOTTOM DASHBOARD (Trip Stats) --- */
+        /* --- 3. RECENTER BUTTON (RESTORED!) --- */
+        #recenter-btn {
+            position: absolute;
+            bottom: 120px; /* Positioned above the dashboard */
+            right: 20px;
+            background: white;
+            border: none;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            cursor: pointer;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: #4285F4; /* Blue by default */
+            transition: all 0.2s;
+        }
+        #recenter-btn:active { transform: scale(0.95); }
+
+        /* --- 4. TRIP STATS (Bottom) --- */
         #trip-dashboard {
             position: absolute;
             bottom: 30px;
@@ -102,7 +72,7 @@
             transform: translateX(-50%);
             background: white;
             padding: 15px 30px;
-            border-radius: 50px; /* Pill shape */
+            border-radius: 50px;
             box-shadow: 0 4px 20px rgba(0,0,0,0.2);
             z-index: 1000;
             display: flex;
@@ -114,14 +84,16 @@
         .trip-val { display: block; font-weight: bold; font-size: 1.2rem; }
         .trip-label { font-size: 0.8rem; color: #777; }
 
-        /* Mobile Adjustments */
         @media (max-width: 600px) {
             #weather-card { right: 10px; top: 10px; width: auto; }
             #trip-dashboard { width: 85%; border-radius: 20px; gap: 15px; }
+            #recenter-btn { bottom: 100px; right: 15px; }
         }
     </style>
 </head>
 <body>
+
+    <button id="recenter-btn" title="Center on me">⌖</button>
 
     <div id="weather-card" onclick="toggleWeather()">
         <div class="weather-header">
@@ -181,18 +153,18 @@
     <div id="map"></div>
 
     <script>
-        // --- GLOBAL VARIABLES ---
         let map, marker, polyline;
         let pathCoords = [];
         let lastSavedPos = null;
         let lastWeatherUpdate = 0;
         let isExpanded = false;
+        let isAutoCentering = true; // "Follow Me" Mode
+        let currentPos = null;      // Latest known location
 
-        // --- UI FUNCTION: Toggle Weather Card ---
+        // Toggle Weather Card Logic
         function toggleWeather() {
             const card = document.getElementById("weather-card");
             const btn = document.querySelector(".toggle-btn");
-            
             if (isExpanded) {
                 card.classList.remove("expanded");
                 btn.innerText = "Tap for Details ▾";
@@ -203,21 +175,37 @@
             isExpanded = !isExpanded;
         }
 
-        // --- MAP INIT ---
+        // Initialize Map
         function initMap() {
             const startPos = { lat: 20.5937, lng: 78.9629 };
             map = new google.maps.Map(document.getElementById("map"), {
                 zoom: 16, center: startPos, mapTypeId: 'roadmap', disableDefaultUI: true, zoomControl: true
             });
+            
             marker = new google.maps.Marker({
                 map: map,
                 icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: "#4285F4", fillOpacity: 1, strokeWeight: 2, strokeColor: "white" }
             });
+            
             polyline = new google.maps.Polyline({ map: map, path: [], strokeColor: "#2962FF", strokeWeight: 5 });
+
+            // 1. If user drags map, stop following
+            map.addListener('dragstart', () => {
+                isAutoCentering = false;
+                document.getElementById('recenter-btn').style.color = "#666"; // Grey
+            });
+
+            // 2. If user clicks button, Start following
+            document.getElementById('recenter-btn').addEventListener('click', () => {
+                isAutoCentering = true;
+                document.getElementById('recenter-btn').style.color = "#4285F4"; // Blue
+                if(currentPos) map.panTo(currentPos);
+            });
+
             startTracking();
         }
 
-        // --- TRACKING LOGIC ---
+        // Tracking Logic
         function startTracking() {
             if (navigator.geolocation) {
                 navigator.geolocation.watchPosition(
@@ -226,8 +214,13 @@
                         const lng = position.coords.longitude;
                         const accuracy = position.coords.accuracy;
                         const newPos = { lat, lng };
+                        currentPos = newPos; // Update latest pos for button
 
-                        // Accuracy Filter (The Laptop Fix)
+                        // Visuals
+                        marker.setPosition(newPos);
+                        if(isAutoCentering) map.panTo(newPos);
+
+                        // Accuracy Filter
                         if (accuracy > 100) {
                             document.getElementById("status-indicator").innerText = "Weak";
                             document.getElementById("status-indicator").style.color = "orange";
@@ -243,8 +236,6 @@
                         // Valid Point Logic
                         lastSavedPos = new google.maps.LatLng(lat, lng);
                         pathCoords.push(newPos);
-                        marker.setPosition(newPos);
-                        map.panTo(newPos);
                         polyline.setPath(pathCoords);
 
                         // Update Stats
@@ -264,41 +255,35 @@
             }
         }
 
-        // --- THE ADVANCED WEATHER ENGINE ---
+        // Weather Engine
         function checkWeather(lat, lng) {
             const now = Date.now();
-            if (now - lastWeatherUpdate > 300000) { // 5 mins throttle
-                
-                // *** INSERT YOUR API KEY HERE ***
-                const apiKey = "e1a10329e0074a971a75050a382fcf73"; 
+            if (now - lastWeatherUpdate > 300000) { 
+                const apiKey = "e1a10329e0074a971a75050a382fcf73"; // *** REPLACE THIS WITH YOUR KEY ***
 
                 fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&units=metric&appid=${apiKey}`)
                     .then(res => res.json())
                     .then(data => {
-                        // 1. Basic Info
                         document.getElementById("temp-main").innerText = Math.round(data.main.temp) + "°";
                         document.getElementById("weather-desc").innerText = data.weather[0].description;
                         
-                        // 2. Advanced Details
                         document.getElementById("feels-like").innerText = Math.round(data.main.feels_like) + "°";
                         document.getElementById("humidity").innerText = data.main.humidity + "%";
                         document.getElementById("pressure").innerText = data.main.pressure + " hPa";
                         document.getElementById("wind-speed").innerText = Math.round(data.wind.speed * 3.6) + " km/h";
                         document.getElementById("visibility").innerText = (data.visibility / 1000).toFixed(1) + " km";
                         
-                        // 3. Sunrise/Sunset Calculation
+                        document.getElementById("sun-time").innerText = 
+                            new Date(data.sys.sunset * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+
+                        // Animation Logic
+                        const iconCode = data.weather[0].id;
                         const sunrise = new Date(data.sys.sunrise * 1000).getHours();
                         const sunset = new Date(data.sys.sunset * 1000).getHours();
                         const currentHour = new Date().getHours();
                         const isNight = (currentHour >= sunset || currentHour < sunrise);
                         
-                        document.getElementById("sun-time").innerText = 
-                            new Date(data.sys.sunset * 1000).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-
-                        // 4. THE MAGIC: Set Animated Icon based on ID and Day/Night
-                        const iconCode = data.weather[0].id;
-                        const animUrl = getAnimatedIcon(iconCode, isNight);
-                        document.getElementById("anim-icon").src = animUrl;
+                        document.getElementById("anim-icon").src = getAnimatedIcon(iconCode, isNight);
                     })
                     .catch(e => console.error(e));
                 
@@ -306,30 +291,14 @@
             }
         }
 
-        // --- ANIMATED ICON MAPPER ---
-        // This function picks the perfect animated SVG based on the OpenWeather ID
         function getAnimatedIcon(code, isNight) {
             const baseUrl = "https://basmilius.github.io/weather-icons/production/fill/all/";
-            
-            // Thunderstorm
             if (code >= 200 && code < 300) return baseUrl + "thunderstorms.svg";
-            // Drizzle / Rain
             if (code >= 300 && code < 600) return baseUrl + "rain.svg";
-            // Snow
             if (code >= 600 && code < 700) return baseUrl + "snow.svg";
-            // Fog / Mist
             if (code >= 700 && code < 800) return baseUrl + "fog.svg";
-            
-            // Clear Sky (800) - Handle Day vs Night
-            if (code === 800) {
-                return isNight ? baseUrl + "starry-night.svg" : baseUrl + "clear-day.svg";
-            }
-            
-            // Clouds (801-804) - Handle Day vs Night
-            if (code > 800) {
-                return isNight ? baseUrl + "partly-cloudy-night.svg" : baseUrl + "partly-cloudy-day.svg";
-            }
-
+            if (code === 800) return isNight ? baseUrl + "starry-night.svg" : baseUrl + "clear-day.svg";
+            if (code > 800) return isNight ? baseUrl + "partly-cloudy-night.svg" : baseUrl + "partly-cloudy-day.svg";
             return baseUrl + "not-available.svg";
         }
     </script>
