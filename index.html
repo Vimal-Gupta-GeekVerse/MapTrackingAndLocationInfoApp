@@ -3,71 +3,85 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Journey Tracker</title>
+    <title>Journey Tracker Pro</title>
+    
     <style>
-        /* 1. Reset and Full Screen Setup */
-        body, html { height: 100%; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, sans-serif; }
+        /* 1. RESET: Remove default margins so the map hits the edge of the screen */
+        body, html { height: 100%; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, sans-serif; }
         
+        /* 2. MAP CONTAINER: Must have height 100% or the map won't show */
         #map { height: 100%; width: 100%; }
 
-        /* 2. The Smart Info Dashboard */
+        /* 3. DASHBOARD: The white box at the bottom. 
+           We use 'absolute' to float it on top of the map.
+           'z-index: 1000' ensures it stays above the map layers. */
         #dashboard {
             position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(255, 255, 255, 0.95); /* Slightly transparent */
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            bottom: 30px;        /* 30px from bottom */
+            left: 50%;           /* Center horizontally */
+            transform: translateX(-50%); /* Perfect centering trick */
+            background: white;
+            padding: 15px;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2); /* Soft shadow */
+            z-index: 1000;       /* Layer on top */
+            width: 90%;
+            max-width: 400px;    /* Don't get too wide on desktops */
+            text-align: center;
+        }
+
+        /* 4. RECENTER BUTTON: The custom GPS target button */
+        #recenter-btn {
+            position: absolute;
+            bottom: 220px;       /* Place it above the dashboard */
+            right: 20px;         /* 20px from right edge */
+            background: white;
+            border: none;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;  /* Make it a perfect circle */
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            cursor: pointer;
             z-index: 1000;
-            width: 280px;
-            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: #666;         /* Default color (Grey = Inactive) */
+            transition: color 0.3s; /* Smooth color change */
         }
-
-        h3 { margin-top: 0; color: #333; display: flex; align-items: center; gap: 10px; }
         
-        /* Stats Grid */
-        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
-        .stat-box { background: #f0f2f5; padding: 10px; border-radius: 8px; text-align: center; }
-        .stat-label { font-size: 0.8rem; color: #666; display: block; }
-        .stat-value { font-size: 1.1rem; font-weight: bold; color: #2c3e50; }
-
-        /* 3. Mobile Responsive Design */
-        @media (max-width: 600px) {
-            #dashboard {
-                top: auto;      /* Unset top */
-                bottom: 20px;   /* Move to bottom */
-                left: 10px;
-                right: 10px;
-                width: auto;    /* Full width minus margins */
-                padding: 15px;
-            }
-            .stat-grid { grid-template-columns: 1fr 1fr 1fr 1fr; } /* 4 columns on mobile */
-        }
+        /* Styling for the stats text */
+        .stat-row { display: flex; justify-content: space-around; margin-top: 10px; }
+        .stat-item { display: flex; flex-direction: column; }
+        .stat-val { font-weight: bold; font-size: 1.2rem; }
+        .stat-label { font-size: 0.8rem; color: #666; }
+        
+        /* The little colored dot indicating GPS status */
+        #status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: red; margin-right: 5px; }
     </style>
 </head>
 <body>
 
+    <button id="recenter-btn" title="Center on me">⌖</button>
+
     <div id="dashboard">
-        <h3>📍 Live Tracker</h3>
-        <div style="margin-bottom: 10px; font-size: 0.9rem;" id="status">Waiting for GPS...</div>
+        <div style="font-size: 0.9rem; margin-bottom: 5px;">
+            <span id="status-dot"></span> <span id="status-text">Initializing GPS...</span>
+        </div>
         
-        <div class="stat-grid">
-            <div class="stat-box">
-                <span class="stat-label">Distance</span>
-                <span class="stat-value" id="dist">0.00</span> km
+        <div class="stat-row">
+            <div class="stat-item">
+                <span class="stat-val" id="dist">0.00</span>
+                <span class="stat-label">km</span>
             </div>
-            <div class="stat-box">
-                <span class="stat-label">Speed</span>
-                <span class="stat-value" id="speed">0</span> km/h
+            <div class="stat-item">
+                <span class="stat-val" id="speed">0.0</span>
+                <span class="stat-label">km/h</span>
             </div>
-            <div class="stat-box">
-                <span class="stat-label">Temp</span>
-                <span class="stat-value" id="temp">--</span> °C
-            </div>
-            <div class="stat-box">
-                <span class="stat-label">Wind</span>
-                <span class="stat-value" id="wind">--</span> km/h
+            <div class="stat-item">
+                <span class="stat-val" id="temp">--</span>
+                <span class="stat-label">°C</span>
             </div>
         </div>
     </div>
@@ -75,162 +89,188 @@
     <div id="map"></div>
 
     <script>
-        let map, marker, polyline;
-        let pathCoords = [];
-        let watchId = null;
-        let lastWeatherUpdate = 0;
+        // --- GLOBAL VARIABLES ---
+        // These store data that needs to survive across different functions.
+        let map;            // The Google Map object
+        let marker;         // The Blue Dot marker
+        let polyline;       // The Red Line drawing your path
+        let pathCoords = []; // Array storing every [lat, lng] point we visited
+        
+        // Tracking State Variables
+        let lastSavedPos = null; // The last valid point we added to the distance
+        let isAutoCentering = true; // Boolean: Should map lock to user? (True/False)
+        let currentPos = null;   // The absolute latest GPS reading
+        let lastWeatherUpdate = 0; // Timestamp of when we last checked weather
 
         // --- 1. INITIALIZE MAP ---
+        // This function runs AUTOMATICALLY when the Google API script loads.
         function initMap() {
-            const startPos = { lat: 20.5937, lng: 78.9629 }; // Default: India
-            
+            // Default Start: Center of India (Used before GPS kicks in)
+            const startPos = { lat: 20.5937, lng: 78.9629 }; 
+
+            // Create the Map
             map = new google.maps.Map(document.getElementById("map"), {
-                zoom: 15,
+                zoom: 18,              // Zoom level (1: World, 20: House)
                 center: startPos,
-                mapTypeId: 'roadmap',
-                disableDefaultUI: false, // Keep zoom buttons
+                mapTypeId: 'roadmap',  // Normal map look
+                disableDefaultUI: true, // Hide Google's default buttons
+                zoomControl: true,      // But keep the +/- zoom buttons
             });
 
-            // The Blue Dot Marker
+            // Create the "You are here" Marker
             marker = new google.maps.Marker({
                 map: map,
-                title: "Current Location",
                 icon: {
                     path: google.maps.SymbolPath.CIRCLE,
-                    scale: 8,
-                    fillColor: "#4285F4",
+                    scale: 10,          // Size of the blue dot
+                    fillColor: "#4285F4", // Google Blue
                     fillOpacity: 1,
-                    strokeWeight: 2,
+                    strokeWeight: 2,    // White border width
                     strokeColor: "white",
                 }
             });
 
-            // The Red Path Line
+            // Create the Path Line (Initially empty)
             polyline = new google.maps.Polyline({
                 map: map,
-                path: [],
-                strokeColor: "#FF0000",
-                strokeWeight: 4
+                path: [],               // Starts empty
+                strokeColor: "#2962FF", // Dark Blue line
+                strokeWeight: 5         // Thickness
             });
 
+            // --- EVENT LISTENER: USER DRAGGING MAP ---
+            // If the user drags the map, they want to look around.
+            // So we STOP automatically centering the camera.
+            map.addListener('dragstart', () => {
+                isAutoCentering = false; 
+                // Turn the button Grey to show it's inactive
+                document.getElementById('recenter-btn').style.color = "#666"; 
+            });
+
+            // --- EVENT LISTENER: RECENTER BUTTON CLICKED ---
+            // If user clicks the button, turn Auto-Center back ON.
+            document.getElementById('recenter-btn').addEventListener('click', () => {
+                isAutoCentering = true;
+                // Turn the button Blue to show it's active
+                document.getElementById('recenter-btn').style.color = "#4285F4"; 
+                // Immediately snap to the last known location
+                if(currentPos) map.panTo(currentPos);
+            });
+
+            // Start the GPS Tracking Loop
             startTracking();
         }
 
-       // --- 2. START TRACKING (GPS) ---
-function startTracking() {
-    // Check if the user's browser supports Geolocation (most modern ones do)
-    if (navigator.geolocation) {
-        
-        // --- 2a. INITIAL VISUAL SETUP ---
-        // Just setting the text to 'Starting...' initially. 
-        // We will update this to 'Green' later only if we get a good signal.
-        document.getElementById("status").innerText = "🔵 Starting Tracking...";
-        document.getElementById("status").style.color = "blue";
+        // --- 2. THE TRACKING LOOP ---
+        function startTracking() {
+            // Check if browser supports GPS
+            if (navigator.geolocation) {
+                // watchPosition runs the inner function EVERY time location changes
+                navigator.geolocation.watchPosition(
+                    (position) => {
+                        // Extract raw data from GPS sensor
+                        const lat = position.coords.latitude;
+                        const lng = position.coords.longitude;
+                        const accuracy = position.coords.accuracy; // In meters
+                        const newPos = { lat, lng };
+                        
+                        // Update global variable for the recenter button to use
+                        currentPos = newPos; 
 
-        // --- 2b. START WATCHING POSITION ---
-        // watchPosition is like a loop. It runs the code inside every time 
-        // the GPS detects a change in location.
-        watchId = navigator.geolocation.watchPosition(
-            
-            // --- SUCCESS CALLBACK (When GPS works) ---
-            (position) => {
-                // Get raw data from the sensor
-                const lat = position.coords.latitude;
-                const lng = position.coords.longitude;
-                const accuracy = position.coords.accuracy; // Accuracy is in meters (lower is better)
+                        // --- VISUAL UPDATE 1: MOVE MARKER ---
+                        // Always move the blue dot, even if accuracy is poor.
+                        marker.setPosition(newPos);
+                        
+                        // --- VISUAL UPDATE 2: PAN CAMERA ---
+                        // Only move the camera if "Follow Me" mode is ON.
+                        if (isAutoCentering) {
+                            map.panTo(newPos);
+                        }
 
-                // --- SMART FILTER: IGNORE BAD DATA ---
-                // If the device is unsure about the location by more than 100 meters,
-                // we ignore this point. This stops the "Ahmedabad" jump issue on laptops.
-                if (accuracy > 100) {
-                    console.warn(`Skipping point. Accuracy is too low: ${accuracy}m`);
-                    document.getElementById("status").innerText = `⚠️ Weak Signal (Accuracy: ${Math.round(accuracy)}m) - Waiting...`;
-                    document.getElementById("status").style.color = "orange";
-                    return; // STOP HERE. Don't draw, don't calculate distance.
-                }
+                        // --- LOGIC GATE 1: SIGNAL QUALITY ---
+                        // If accuracy is worse than 50 meters, the data is too vague.
+                        // We show a warning and DO NOT calculate distance.
+                        const dot = document.getElementById("status-dot");
+                        if (accuracy > 50) {
+                            dot.style.background = "orange"; 
+                            document.getElementById("status-text").innerText = `Weak Signal (${Math.round(accuracy)}m)`;
+                            return; // STOP EXECUTION HERE.
+                        } else {
+                            // Signal is good! Green light.
+                            dot.style.background = "#00e676"; 
+                            document.getElementById("status-text").innerText = "Tracking Active";
+                        }
 
-                // If we passed the filter, the data is good!
-                const pos = { lat, lng };
+                        // --- LOGIC GATE 2: THE "GHOST FILTER" (Anti-Drift) ---
+                        // GPS behaves like a jittery cursor. Even standing still, it jumps 1-2 meters.
+                        // We check: "Did we move at least 10 meters since the last saved point?"
+                        if (lastSavedPos) {
+                            // Calculate distance between Last Saved Point and Current Point
+                            const metersMoved = google.maps.geometry.spherical.computeDistanceBetween(lastSavedPos, newPos);
+                            
+                            // If moved less than 10 meters, ignore it. It's just noise.
+                            if (metersMoved < 10) return; 
+                        }
 
-                // --- UPDATE MAP VISUALS ---
-                // Move the blue marker to the new spot
-                marker.setPosition(pos);
-                // Center the camera on the user
-                map.panTo(pos);
-                
-                // --- DRAW THE PATH ---
-                // Add the new good point to our list of history coordinates
-                pathCoords.push(pos);
-                // Update the red line on the map to include this new point
-                polyline.setPath(pathCoords);
+                        // --- DATA SAVE: VALID POINT CONFIRMED ---
+                        // If we reach here, the point is valid (Good signal + Real movement).
+                        
+                        // 1. Save this as the new "Last Valid Point"
+                        lastSavedPos = new google.maps.LatLng(lat, lng); 
+                        
+                        // 2. Add to our path array
+                        pathCoords.push(newPos);
+                        
+                        // 3. Redraw the line on the map
+                        polyline.setPath(pathCoords);
 
-                // --- UPDATE SPEED ---
-                // position.coords.speed is in meters/second. 
-                // We multiply by 3.6 to get km/h.
-                // If speed is null (user is standing still), we show 0.
-                const speedKmh = position.coords.speed ? (position.coords.speed * 3.6).toFixed(1) : 0;
-                document.getElementById("speed").innerText = speedKmh;
+                        // --- STATS UPDATE ---
+                        
+                        // SPEED: Convert m/s to km/h
+                        const speed = position.coords.speed ? (position.coords.speed * 3.6).toFixed(1) : 0;
+                        document.getElementById("speed").innerText = speed;
+                        
+                        // DISTANCE: Calculate total length of the path array
+                        const totalMeters = google.maps.geometry.spherical.computeLength(pathCoords);
+                        document.getElementById("dist").innerText = (totalMeters / 1000).toFixed(2);
 
-                // --- UPDATE DISTANCE ---
-                // Call our helper function to re-calculate total distance based on the new path
-                updateDistance();
-                
-                // --- UPDATE STATUS TEXT ---
-                // Show the user that tracking is working and accurate
-                document.getElementById("status").innerText = `🔵 Tracking Active (Accuracy: ${Math.round(accuracy)}m)`;
-                document.getElementById("status").style.color = "green";
-
-                // --- UPDATE WEATHER (THROTTLED) ---
-                // We don't want to call the Weather API every second (it might cost money or get banned).
-                // So we check: "Has it been 5 minutes since the last check?"
-                const now = Date.now();
-                if (now - lastWeatherUpdate > 300000) { // 300,000 milliseconds = 5 minutes
-                    fetchWeather(lat, lng);
-                    lastWeatherUpdate = now; // Reset the timer
-                }
-            },
-            
-            // --- ERROR CALLBACK (When GPS fails) ---
-            (error) => {
-                console.error("GPS Error:", error);
-                document.getElementById("status").innerText = "❌ GPS Error: " + error.message;
-            },
-            
-            // --- GPS OPTIONS ---
-            { 
-                enableHighAccuracy: true, // Ask the device to turn on the heavy-duty GPS chip
-                maximumAge: 0            // Don't use old cached locations; always get a new one
+                        // WEATHER: Check if we should fetch weather (throttled)
+                        checkWeather(lat, lng);
+                    },
+                    (error) => {
+                        // Handle errors (GPS turned off, permission denied)
+                        document.getElementById("status-text").innerText = "GPS Error: Check Settings";
+                        document.getElementById("status-dot").style.background = "red";
+                        console.error("GPS Error Code: " + error.code, error.message);
+                    },
+                    // GPS Options: High Accuracy = Use GPS chip (consumes battery), not just WiFi
+                    { enableHighAccuracy: true, maximumAge: 0 }
+                );
+            } else {
+                alert("Browser doesn't support Geolocation API");
             }
-        );
-    } else {
-        // Fallback for very old browsers (like Internet Explorer)
-        alert("Browser doesn't support Geolocation");
-    }
-}
-        // --- 3. CALCULATE DISTANCE (Google Geometry) ---
-        function updateDistance() {
-            // computeLength comes from the 'geometry' library we load in the script tag below
-            const totalMeters = google.maps.geometry.spherical.computeLength(pathCoords);
-            const totalKm = (totalMeters / 1000).toFixed(2);
-            document.getElementById("dist").innerText = totalKm;
         }
 
-        // --- 4. FETCH WEATHER (OpenWeatherMap) ---
-        async function fetchWeather(lat, lng) {
-            // REPLACE THIS WITH YOUR OPENWEATHER KEY
-            const apiKey = "e1a10329e0074a971a75050a382fcf73"; 
-            if(apiKey === "e1a10329e0074a971a75050a382fcf73") return; // Stop if no key
-
-            const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&units=metric&appid=${apiKey}`;
-
-            try {
-                const response = await fetch(url);
-                const data = await response.json();
+        // --- 3. WEATHER HELPER FUNCTION ---
+        function checkWeather(lat, lng) {
+            const now = Date.now();
+            // Throttling: Only run if 5 minutes (300,000ms) have passed since last check
+            if (now - lastWeatherUpdate > 300000) { 
                 
-                document.getElementById("temp").innerText = Math.round(data.main.temp);
-                document.getElementById("wind").innerText = Math.round(data.wind.speed * 3.6); // Convert m/s to km/h
-            } catch (err) {
-                console.error("Weather fetch failed", err);
+                // --- API CONFIGURATION ---
+                const apiKey = "e1a10329e0074a971a75050a382fcf73"; // <--- PUT YOUR KEY HERE
+                
+                // Fetch data from OpenWeatherMap
+                fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&units=metric&appid=${apiKey}`)
+                    .then(res => res.json()) // Convert raw text to JSON object
+                    .then(data => {
+                        // Update the HTML element
+                        document.getElementById("temp").innerText = Math.round(data.main.temp);
+                    })
+                    .catch(err => console.error("Weather Error:", err)); // Catch network errors
+                
+                // Update timestamp so we don't fetch again too soon
+                lastWeatherUpdate = now;
             }
         }
     </script>
