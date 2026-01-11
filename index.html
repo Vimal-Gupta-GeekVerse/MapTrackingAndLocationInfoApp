@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Journey Tracker</title>
+    <style>
+        /* 1. Reset and Full Screen Setup */
+        body, html { height: 100%; margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, sans-serif; }
+        
+        #map { height: 100%; width: 100%; }
+
+        /* 2. The Smart Info Dashboard */
+        #dashboard {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95); /* Slightly transparent */
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            z-index: 1000;
+            width: 280px;
+            transition: all 0.3s ease;
+        }
+
+        h3 { margin-top: 0; color: #333; display: flex; align-items: center; gap: 10px; }
+        
+        /* Stats Grid */
+        .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        .stat-box { background: #f0f2f5; padding: 10px; border-radius: 8px; text-align: center; }
+        .stat-label { font-size: 0.8rem; color: #666; display: block; }
+        .stat-value { font-size: 1.1rem; font-weight: bold; color: #2c3e50; }
+
+        /* 3. Mobile Responsive Design */
+        @media (max-width: 600px) {
+            #dashboard {
+                top: auto;      /* Unset top */
+                bottom: 20px;   /* Move to bottom */
+                left: 10px;
+                right: 10px;
+                width: auto;    /* Full width minus margins */
+                padding: 15px;
+            }
+            .stat-grid { grid-template-columns: 1fr 1fr 1fr 1fr; } /* 4 columns on mobile */
+        }
+    </style>
+</head>
+<body>
+
+    <div id="dashboard">
+        <h3>📍 Live Tracker</h3>
+        <div style="margin-bottom: 10px; font-size: 0.9rem;" id="status">Waiting for GPS...</div>
+        
+        <div class="stat-grid">
+            <div class="stat-box">
+                <span class="stat-label">Distance</span>
+                <span class="stat-value" id="dist">0.00</span> km
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">Speed</span>
+                <span class="stat-value" id="speed">0</span> km/h
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">Temp</span>
+                <span class="stat-value" id="temp">--</span> °C
+            </div>
+            <div class="stat-box">
+                <span class="stat-label">Wind</span>
+                <span class="stat-value" id="wind">--</span> km/h
+            </div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <script>
+        let map, marker, polyline;
+        let pathCoords = [];
+        let watchId = null;
+        let lastWeatherUpdate = 0;
+
+        // --- 1. INITIALIZE MAP ---
+        function initMap() {
+            const startPos = { lat: 20.5937, lng: 78.9629 }; // Default: India
+            
+            map = new google.maps.Map(document.getElementById("map"), {
+                zoom: 15,
+                center: startPos,
+                mapTypeId: 'roadmap',
+                disableDefaultUI: false, // Keep zoom buttons
+            });
+
+            // The Blue Dot Marker
+            marker = new google.maps.Marker({
+                map: map,
+                title: "Current Location",
+                icon: {
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale: 8,
+                    fillColor: "#4285F4",
+                    fillOpacity: 1,
+                    strokeWeight: 2,
+                    strokeColor: "white",
+                }
+            });
+
+            // The Red Path Line
+            polyline = new google.maps.Polyline({
+                map: map,
+                path: [],
+                strokeColor: "#FF0000",
+                strokeWeight: 4
+            });
+
+            startTracking();
+        }
+
+       // --- 2. START TRACKING (GPS) ---
+function startTracking() {
+    // Check if the user's browser supports Geolocation (most modern ones do)
+    if (navigator.geolocation) {
+        
+        // --- 2a. INITIAL VISUAL SETUP ---
+        // Just setting the text to 'Starting...' initially. 
+        // We will update this to 'Green' later only if we get a good signal.
+        document.getElementById("status").innerText = "🔵 Starting Tracking...";
+        document.getElementById("status").style.color = "blue";
+
+        // --- 2b. START WATCHING POSITION ---
+        // watchPosition is like a loop. It runs the code inside every time 
+        // the GPS detects a change in location.
+        watchId = navigator.geolocation.watchPosition(
+            
+            // --- SUCCESS CALLBACK (When GPS works) ---
+            (position) => {
+                // Get raw data from the sensor
+                const lat = position.coords.latitude;
+                const lng = position.coords.longitude;
+                const accuracy = position.coords.accuracy; // Accuracy is in meters (lower is better)
+
+                // --- SMART FILTER: IGNORE BAD DATA ---
+                // If the device is unsure about the location by more than 100 meters,
+                // we ignore this point. This stops the "Ahmedabad" jump issue on laptops.
+                if (accuracy > 100) {
+                    console.warn(`Skipping point. Accuracy is too low: ${accuracy}m`);
+                    document.getElementById("status").innerText = `⚠️ Weak Signal (Accuracy: ${Math.round(accuracy)}m) - Waiting...`;
+                    document.getElementById("status").style.color = "orange";
+                    return; // STOP HERE. Don't draw, don't calculate distance.
+                }
+
+                // If we passed the filter, the data is good!
+                const pos = { lat, lng };
+
+                // --- UPDATE MAP VISUALS ---
+                // Move the blue marker to the new spot
+                marker.setPosition(pos);
+                // Center the camera on the user
+                map.panTo(pos);
+                
+                // --- DRAW THE PATH ---
+                // Add the new good point to our list of history coordinates
+                pathCoords.push(pos);
+                // Update the red line on the map to include this new point
+                polyline.setPath(pathCoords);
+
+                // --- UPDATE SPEED ---
+                // position.coords.speed is in meters/second. 
+                // We multiply by 3.6 to get km/h.
+                // If speed is null (user is standing still), we show 0.
+                const speedKmh = position.coords.speed ? (position.coords.speed * 3.6).toFixed(1) : 0;
+                document.getElementById("speed").innerText = speedKmh;
+
+                // --- UPDATE DISTANCE ---
+                // Call our helper function to re-calculate total distance based on the new path
+                updateDistance();
+                
+                // --- UPDATE STATUS TEXT ---
+                // Show the user that tracking is working and accurate
+                document.getElementById("status").innerText = `🔵 Tracking Active (Accuracy: ${Math.round(accuracy)}m)`;
+                document.getElementById("status").style.color = "green";
+
+                // --- UPDATE WEATHER (THROTTLED) ---
+                // We don't want to call the Weather API every second (it might cost money or get banned).
+                // So we check: "Has it been 5 minutes since the last check?"
+                const now = Date.now();
+                if (now - lastWeatherUpdate > 300000) { // 300,000 milliseconds = 5 minutes
+                    fetchWeather(lat, lng);
+                    lastWeatherUpdate = now; // Reset the timer
+                }
+            },
+            
+            // --- ERROR CALLBACK (When GPS fails) ---
+            (error) => {
+                console.error("GPS Error:", error);
+                document.getElementById("status").innerText = "❌ GPS Error: " + error.message;
+            },
+            
+            // --- GPS OPTIONS ---
+            { 
+                enableHighAccuracy: true, // Ask the device to turn on the heavy-duty GPS chip
+                maximumAge: 0            // Don't use old cached locations; always get a new one
+            }
+        );
+    } else {
+        // Fallback for very old browsers (like Internet Explorer)
+        alert("Browser doesn't support Geolocation");
+    }
+}
+        // --- 3. CALCULATE DISTANCE (Google Geometry) ---
+        function updateDistance() {
+            // computeLength comes from the 'geometry' library we load in the script tag below
+            const totalMeters = google.maps.geometry.spherical.computeLength(pathCoords);
+            const totalKm = (totalMeters / 1000).toFixed(2);
+            document.getElementById("dist").innerText = totalKm;
+        }
+
+        // --- 4. FETCH WEATHER (OpenWeatherMap) ---
+        async function fetchWeather(lat, lng) {
+            // REPLACE THIS WITH YOUR OPENWEATHER KEY
+            const apiKey = "e1a10329e0074a971a75050a382fcf73"; 
+            if(apiKey === "e1a10329e0074a971a75050a382fcf73") return; // Stop if no key
+
+            const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&units=metric&appid=${apiKey}`;
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+                
+                document.getElementById("temp").innerText = Math.round(data.main.temp);
+                document.getElementById("wind").innerText = Math.round(data.wind.speed * 3.6); // Convert m/s to km/h
+            } catch (err) {
+                console.error("Weather fetch failed", err);
+            }
+        }
+    </script>
+
+    <script async
+        src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCsBhSPL0sZVmvrA8KSkmmBCmYKf9ldAcA&libraries=geometry&callback=initMap">
+    </script>
+</body>
+</html>
